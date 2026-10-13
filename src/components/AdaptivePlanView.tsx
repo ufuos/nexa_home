@@ -34,6 +34,15 @@ export default function AdaptivePlanView({
   const [selected, setSelected] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [playing, setPlaying] = useState(false);
+  const [, setCatalogItems] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Fetch available content catalog on mount
+    fetch("/api/v1/content/catalog")
+      .then((res) => res.json())
+      .then((data) => setCatalogItems(data.items || []))
+      .catch((err) => console.error("Failed to load catalog:", err));
+  }, []);
 
   useEffect(() => {
     const idx = plan.items.findIndex((i) => i.status !== "completed");

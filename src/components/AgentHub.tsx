@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { AgentPlanCard, AgentStatusBadge, Icon, TVFocusable } from "@/components/tv-ui-kit/TVKit";
-import { AGENT_TOOL_NAMES, buildInvocations, planFromPrompt } from "@/data/mockData";
+import { AGENT_TOOL_NAMES } from "@/data/mockData";
 import type { AgendaPlan, AgentStatus, AgentToolInvocation, Profile } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -63,30 +63,58 @@ export default function AgentHub({
     return () => window.removeEventListener("keydown", onKey);
   }, [phase]);
 
-  const run = () => {
+  const run = async () => {
     if (!prompt.trim()) {
       toast.error("Tell NEXA what your household wants to do.");
       return;
     }
-    const inv = buildInvocations(prompt);
+
     timers.current.forEach((t) => window.clearTimeout(t));
     timers.current = [];
-    setInvocations(inv);
+    setInvocations([]);
     setRevealed(0);
     setPlan(null);
     setPhase("running");
-    inv.forEach((_, i) => {
-      timers.current.push(window.setTimeout(() => setRevealed(i + 1), 430 * (i + 1)));
-    });
-    timers.current.push(
-      window.setTimeout(() => {
-        const generated = planFromPrompt(prompt, profile.id);
-        setPlan(generated);
-        setPhase("done");
-        onPlanGenerated(generated);
-        toast.success(`Agenda ready with ${generated.items.length} activities`);
-      }, 430 * (inv.length + 2)),
-    );
+
+    try {
+      const response = await fetch("/api/v1/agent/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          profile_id: profile.id,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate agenda from agent service.");
+      }
+
+      const data = await response.json();
+      const fetchedInvocations: AgentToolInvocation[] = data.invocations || [];
+      const generatedPlan: AgendaPlan = data.plan;
+
+      setInvocations(fetchedInvocations);
+
+      fetchedInvocations.forEach((_, i) => {
+        timers.current.push(
+          window.setTimeout(() => setRevealed(i + 1), 430 * (i + 1))
+        );
+      });
+
+      timers.current.push(
+        window.setTimeout(() => {
+          setPlan(generatedPlan);
+          setPhase("done");
+          onPlanGenerated(generatedPlan);
+          toast.success(`Agenda ready with ${generatedPlan.items.length} activities`);
+        }, 430 * (fetchedInvocations.length + 1))
+      );
+    } catch (err) {
+      console.error(err);
+      toast.error("Error communicating with NEXA backend agent.");
+      setPhase("idle");
+    }
   };
 
   const append = (ch: string) => setPrompt((p) => (p + ch).slice(0, 150));
